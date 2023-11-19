@@ -2,7 +2,7 @@
 
 This code is provided solely for the personal and private use of students taking
 CSC108 at the University of Toronto. Copying for purposes other than this use is
-expressly prohibited. All forms of distribution of this code, whether as given 
+expressly prohibited. All forms of distribution of this code, whether as given
 or with any changes, are expressly prohibited.
 
 All of the files in this directory and all subdirectories are:
@@ -11,7 +11,7 @@ Sharmin, and Jacqueline Smith.
 """
 
 import copy  # needed in examples of functions that modify input dict
-from typing import TextIO
+from typing import TextIO, Tuple
 
 from constants import (ID, TITLE, CREATED, MODIFIED, AUTHORS, ABSTRACT, END,
                        NameType, ArticleValueType, ArticleType, ArxivType)
@@ -77,11 +77,11 @@ EXAMPLE_BY_AUTHOR = {
 # Helper function to use in your code later on.  Do not change these functions.
 ################################################################################
 def clean_word(word: str) -> str:
-    """Return word with all non-alphabetic characters removed and converted to 
+    """Return word with all non-alphabetic characters removed and converted to
     lowercase.
-    
+
     Precondition: word contains no whitespace
-    
+
     >>> clean_word('Hello!!!')
     'hello'
     >>> clean_word('12cat.dog?')
@@ -99,7 +99,68 @@ def clean_word(word: str) -> str:
 ################################################################################
 # Task 1 - Working with ArxivType
 ################################################################################
-# TODO write your functions for Task 1 here
+def created_in_year(data: ArxivType, id: str, year: int) -> bool:
+    """Determines whether an article in data identified by id was created in
+    year.
+    >>> created_in_year(EXAMPLE_ARXIV, '0001', 2023)
+    True
+    >>> created_in_year(EXAMPLE_ARXIV, '108', 2022)
+    False
+    """
+    if id not in data:
+        return False
+    else:
+        if str(year) not in data[id][CREATED]:
+            return False
+    return True
+
+
+def contains_keyword(arxiv_data: ArxivType, keyword: str) -> list[str]:
+    """
+    Return a list of the IDs of articles of arxiv_data that contain the given
+    keyword in their title, author names, and/or abstract. The list should be
+    sorted in lexicographic order.
+    >>> contains_keyword(EXAMPLE_ARXIV, 'cat')
+    ['0001']
+    >>> contains_keyword(EXAMPLE_ARXIV, 'engagement')
+    ['5090']
+    """
+    matching_ids = []
+    keyword = clean_word(keyword)  # Clean the keyword first
+
+    for article_id, article_info in arxiv_data.items():
+        title = clean_word(article_info[TITLE])
+        abstract = clean_word(article_info[ABSTRACT])
+        authors = ' '.join(
+            [' '.join(author) for author in article_info[AUTHORS]])
+        authors = clean_word(authors)
+
+        if keyword in title.split() or keyword in abstract.split() or \
+                keyword in authors.split():
+            matching_ids.append(article_id)
+
+    return sorted(matching_ids)
+
+
+def average_author_count(arxiv_data: ArxivType) -> float:
+    """
+    Return the average number of authors per article in the arxiv metadata.
+
+    >>> average_author_count(EXAMPLE_ARXIV)
+    1.6
+    >>> average_author_count({})
+    0.0
+    """
+    total_authors = 0
+    total_articles = len(arxiv_data)
+
+    if total_articles == 0:
+        return 0.0
+
+    for article_id, article_info in arxiv_data.items():
+        total_authors += len(article_info[AUTHORS])
+
+    return total_authors / total_articles
 
 
 ################################################################################
@@ -110,11 +171,48 @@ def read_arxiv_file(f: TextIO) -> ArxivType:
 
     Note we do not include example calls for functions that take open files.
     """
+    arxiv_data = {}
+    current_article = {ID: '', TITLE: '', CREATED: '', MODIFIED: '',
+                       AUTHORS: [], ABSTRACT: ''}
+    in_abstract = False
 
-    # TODO write the body of the function here
-    
+    for line in f:
+        line = line.strip()
 
-# TODO write any helper functions you need for Task 2 here
+        if line == END:
+            arxiv_data[current_article[ID]] = current_article
+            current_article = {ID: '', TITLE: '', CREATED: '', MODIFIED: '',
+                               AUTHORS: [], ABSTRACT: ''}
+            in_abstract = False
+        elif not current_article[ID]:
+            current_article[ID] = line
+        elif not current_article[TITLE]:
+            current_article[TITLE] = line
+        elif not current_article[CREATED]:
+            current_article[CREATED] = line
+        elif not current_article[MODIFIED]:
+            current_article[MODIFIED] = line
+        elif line and not in_abstract:
+            current_article[AUTHORS].append(parse_author(line))
+        elif not line:
+            in_abstract = True
+        else:
+            current_article[ABSTRACT] += (line + '\n')
+
+    return arxiv_data
+
+
+def parse_author(line: str) -> Tuple[str, str]:
+    """
+    Parse an author's name from a line.
+
+    >>> parse_author("Smith,John")
+    ('John', 'Smith')
+    >>> parse_author("Ralph,Wang")
+    ('Ralph', 'Wang')
+    """
+    last_name, first_name = line.split(',', 1)
+    return first_name.strip(), last_name.strip()
 
 
 ################################################################################
@@ -133,11 +231,40 @@ def make_author_to_articles(id_to_article: ArxivType
     """
     # We have provided the docstring for this function as an example of how
     # to compare dictionaries in a docstring example
-    
-    # TODO write the body of the function here
+    author_to_articles = {}
+
+    for article_id, article_info in id_to_article.items():
+        for author in article_info[AUTHORS]:
+            if author not in author_to_articles:
+                author_to_articles[author] = []
+            author_to_articles[author].append(article_id)
+
+    for articles in author_to_articles.values():
+        articles.sort()
+
+    return author_to_articles
 
 
-# TODO write the rest of your Task 3 functions here
+def get_coauthors(arxiv_data: ArxivType, author: NameType) -> list[NameType]:
+    """Return a list of coauthors of the specified author, sorted in
+    lexicographic order.
+    >>> get_coauthors(EXAMPLE_ARXIV, ('Smith', 'Jacqueline E.'))
+    [('Campbell', 'Jen'), ('Sharmin', 'Sadia'), ('Zavaleta-Bernuy', 'Angela')]
+    >>> get_coauthors(EXAMPLE_ARXIV, ('Robin', 'Lin'))
+    []
+    """
+    coauthors = set()
+
+    for article_info in arxiv_data.values():
+        if author in article_info[AUTHORS]:
+            for coauthor in article_info[AUTHORS]:
+                if coauthor != author:
+                    coauthors.add(coauthor)
+
+    return sorted(list(coauthors))
+
+
+
 
 
 
@@ -156,7 +283,7 @@ def keep_prolific_authors(id_to_article: ArxivType,
     >>> len(arxiv_copy)
     3
     """
-    # We have provided you with this docstring as an example of how to use 
+    # We have provided you with this docstring as an example of how to use
     # the function copy.deepcopy in docstring examples for functions that
     # modify an argument.
 
